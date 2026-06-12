@@ -40,7 +40,7 @@ create table if not exists meta.load_audit (
     load_id       bigint generated always as identity primary key,
     started_at    timestamptz not null default now(),
     finished_at   timestamptz,
-    status        text not null default 'RUNNING',
+    status        text not null default 'RUNNING' check (status in ('RUNNING','SUCCESS','FAILED')),
     rows_extracted int not null default 0,
     rows_loaded    int not null default 0,
     rows_rejected  int not null default 0,
@@ -50,4 +50,4 @@ create table if not exists meta.load_audit (
 create table if not exists meta.watermarks (
     entity          text primary key,
     last_updated_at timestamptz not null
-)
+);
