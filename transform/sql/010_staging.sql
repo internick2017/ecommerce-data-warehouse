@@ -18,6 +18,7 @@ from raw.orders;
 
 alter table staging.orders add primary key (order_gid);
 
+-- cross join lateral drops orders whose lineItems.edges is empty: zero-item orders appear in staging.orders only
 create table staging.order_items as
 select
     o.payload->>'id'                                        as order_gid,
@@ -30,6 +31,7 @@ select
 from raw.orders o
 cross join lateral jsonb_array_elements(o.payload#>'{lineItems,edges}') as e(edge);
 
+-- Shopify LineItem GIDs are globally unique database IDs (not per-order positions)
 alter table staging.order_items add primary key (line_item_gid);
 
 create table staging.products as
