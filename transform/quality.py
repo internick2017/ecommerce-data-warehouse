@@ -31,23 +31,29 @@ CHECKS = [
        group by customer_gid having count(*) > 1
      ) d
      """),
-    ("item_revenue_reconciles_with_orders",
+    # 0.01 = one cent, matches numeric(12,2); compares subtotal (pre-tax/shipping) per order so errors cannot cancel across orders
+    ("item_revenue_reconciles_per_order",
      """
      select count(*) from (
-       select 1
-       where abs(coalesce((select sum(line_revenue) from curated.fact_order_items), 0)
-               - coalesce((select sum(total_amount) from curated.fact_orders), 0)) > 0.01
+       select o.order_gid
+       from curated.fact_orders o
+       join (select order_gid, sum(line_revenue) as item_total
+             from curated.fact_order_items group by order_gid) i using (order_gid)
+       where abs(o.subtotal_amount - i.item_total) > 0.01
      ) d
      """),
 ]
 
 
 def run_quality_checks(conn):
-    """Returns [(name, violations)]. Raises QualityError on the first failure."""
-    results = []
-    for name, sql in CHECKS:
-        violations = conn.execute(sql).fetchone()[0]
-        results.append((name, violations))
-        if violations != 0:
-            raise QualityError(f"quality check failed: {name} ({violations} violations)")
+    """Runs every check, returns [(name, violations)] when all pass.
+
+    If any check has violations, raises QualityError listing ALL failed
+    checks (operators get the full picture in one run).
+    """
+    results = [(name, conn.execute(sql).fetchone()[0]) for name, sql in CHECKS]
+    failed = [(n, v) for n, v in results if v != 0]
+    if failed:
+        detail = ", ".join(f"{n} ({v} violations)" for n, v in failed)
+        raise QualityError(f"quality checks failed: {detail}")
     return results
