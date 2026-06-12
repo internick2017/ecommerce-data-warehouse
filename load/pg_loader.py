@@ -18,6 +18,7 @@ def start_load(conn):
 
 def finish_load(conn, load_id, status, rows_extracted=0, rows_loaded=0,
                 rows_rejected=0, error=None):
+    """status must be RUNNING/SUCCESS/FAILED (enforced by DB check constraint)."""
     conn.execute(
         """
         update meta.load_audit
@@ -30,7 +31,9 @@ def finish_load(conn, load_id, status, rows_extracted=0, rows_loaded=0,
 
 
 def upsert_raw(conn, entity, records, load_id, extracted_at):
-    assert entity in ("orders", "products", "customers")
+    """Idempotent batch upsert. extracted_at must be tz-aware. Atomic per call; safe to retry (last write wins)."""
+    if entity not in ("orders", "products", "customers"):
+        raise ValueError(f"unknown entity: {entity!r}")
     sql = f"""
         insert into raw.{entity} (shopify_gid, payload, load_id, extracted_at)
         values (%s, %s, %s, %s)
@@ -40,11 +43,12 @@ def upsert_raw(conn, entity, records, load_id, extracted_at):
             extracted_at = excluded.extracted_at,
             loaded_at = now()
     """
-    with conn.cursor() as cur:
-        cur.executemany(
-            sql,
-            [(r["id"], json.dumps(r), load_id, extracted_at) for r in records],
-        )
+    with conn.transaction():
+        with conn.cursor() as cur:
+            cur.executemany(
+                sql,
+                [(r["id"], json.dumps(r), load_id, extracted_at) for r in records],
+            )
 
 
 def insert_reject(conn, entity, payload, reason, load_id):

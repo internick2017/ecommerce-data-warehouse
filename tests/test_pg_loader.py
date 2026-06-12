@@ -1,3 +1,4 @@
+import pytest
 from datetime import datetime, timezone
 
 from load import pg_loader
@@ -56,3 +57,9 @@ def test_watermark_roundtrip(db):
     later = datetime(2026, 6, 13, tzinfo=timezone.utc)
     pg_loader.set_watermark(db, "orders", later)
     assert pg_loader.get_watermark(db, "orders") == later
+
+
+def test_upsert_unknown_entity_raises(db):
+    bootstrap(db)
+    with pytest.raises(ValueError, match="unknown entity"):
+        pg_loader.upsert_raw(db, "invoices", [], load_id=1, extracted_at=NOW)
