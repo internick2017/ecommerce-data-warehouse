@@ -39,13 +39,17 @@ def run_pipeline(conn, client, extract_fn=extract_entity, writer=None, full=Fals
     new_watermarks = {}
     try:
         for entity in ENTITIES:
+            # updated_at:>= is inclusive: the boundary record re-fetches next run; harmless because upserts are idempotent
             since = None if full else pg_loader.get_watermark(conn, entity)
             good, max_updated = [], None
+            entity_extracted = entity_rejected = 0
             for record in extract_fn(client, entity, updated_since=since):
                 extracted += 1
+                entity_extracted += 1
                 ok, reason = validate_record(entity, record)
                 if not ok:
                     rejected += 1
+                    entity_rejected += 1
                     pg_loader.insert_reject(conn, entity, record, reason, load_id)
                     continue
                 good.append(record)
@@ -58,8 +62,8 @@ def run_pipeline(conn, client, extract_fn=extract_entity, writer=None, full=Fals
             loaded += len(good)
             if max_updated:
                 new_watermarks[entity] = max_updated
-            log.info("%s: extracted=%d loaded=%d raw_file=%s",
-                     entity, len(good), len(good), uri)
+            log.info("%s: extracted=%d loaded=%d rejected=%d raw_file=%s",
+                     entity, entity_extracted, len(good), entity_rejected, uri)
 
         run_sql_files(conn, TRANSFORM_SQL)
         run_quality_checks(conn)
@@ -91,6 +95,10 @@ def main():
     conn = pg_loader.connect()
     try:
         run_pipeline(conn, client, full=args.full)
+        return 0
+    except Exception:
+        log.exception("pipeline run failed")
+        return 1
     finally:
         conn.close()
 
