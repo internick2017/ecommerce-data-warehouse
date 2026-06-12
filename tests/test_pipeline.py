@@ -72,6 +72,16 @@ def test_full_flag_ignores_watermarks(db, tmp_path):
     assert all(since is None for _, since in extract2.calls)
 
 
+def test_duplicate_gid_in_extraction_deduped(db, tmp_path):
+    data = seed_data()
+    data["orders"].append(dict(data["orders"][0]))  # same GID twice
+    extract = fake_extract_factory(data)
+    result = run_pipeline(conn=db, client=None, extract_fn=extract,
+                          writer=LocalRawWriter(tmp_path))
+    assert result["status"] == "SUCCESS"
+    assert db.execute("select count(*) from raw.orders").fetchone()[0] == 1
+
+
 def test_failure_marks_audit_failed_and_keeps_watermarks(db, tmp_path):
     extract = fake_extract_factory(seed_data())
     run_pipeline(conn=db, client=None, extract_fn=extract, writer=LocalRawWriter(tmp_path))

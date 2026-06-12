@@ -56,6 +56,9 @@ def run_pipeline(conn, client, extract_fn=extract_entity, writer=None, full=Fals
                 ts = _parse_ts(record["updatedAt"])
                 if max_updated is None or ts > max_updated:
                     max_updated = ts
+            # cursor pagination can return a record on two pages if it is
+            # updated mid-extraction: keep the last occurrence per GID
+            good = list({r["id"]: r for r in good}.values())
             uri = writer.write(entity, good, load_id)
             pg_loader.upsert_raw(conn, entity, good, load_id,
                                  extracted_at=datetime.now(timezone.utc))
