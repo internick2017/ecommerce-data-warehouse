@@ -56,8 +56,11 @@ MODELS = {
 
 def validate_record(entity, record):
     """Returns (True, None) or (False, short_reason)."""
+    model = MODELS.get(entity)
+    if model is None:
+        return False, f"unknown entity: {entity}"
     try:
-        MODELS[entity].model_validate(record)
+        model.model_validate(record)
         return True, None
     except ValidationError as exc:
         first = exc.errors()[0]

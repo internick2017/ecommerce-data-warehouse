@@ -63,3 +63,9 @@ def test_garbage_is_rejected_not_raised():
     ok, reason = validate_record("orders", {"hello": "world"})
     assert ok is False
     assert reason
+
+
+def test_unknown_entity_is_rejected_not_raised():
+    ok, reason = validate_record("invoices", {"id": "x"})
+    assert ok is False
+    assert "unknown entity" in reason
