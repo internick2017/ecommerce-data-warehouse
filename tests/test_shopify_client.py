@@ -75,3 +75,10 @@ def test_non_throttle_graphql_error_raises():
     client, _ = make_client([bad])
     with pytest.raises(ShopifyError, match="syntax error"):
         client.execute("q")
+
+
+def test_non_retryable_4xx_raises_http_error():
+    client, session = make_client([FakeResponse(404)])
+    with pytest.raises(requests.HTTPError):
+        client.execute("q")
+    assert len(session.calls) == 1

@@ -29,7 +29,7 @@ class ShopifyClient:
         while True:
             resp = self.session.post(
                 self.url,
-                json={"query": query, "variables": variables or {}},
+                json={"query": query, "variables": {} if variables is None else variables},
                 headers=self.headers,
                 timeout=30,
             )
