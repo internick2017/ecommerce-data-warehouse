@@ -40,7 +40,14 @@ def test_s3_writer_puts_jsonl_object():
     assert uri == f"s3://my-bucket/{put['Key']}"
 
 
-def test_writer_from_env_prefers_s3(monkeypatch, tmp_path):
+def test_writer_from_env_falls_back_to_local(monkeypatch, tmp_path):
     monkeypatch.setenv("S3_BUCKET", "")
     w = writer_from_env(local_base=tmp_path)
     assert isinstance(w, LocalRawWriter)
+
+
+def test_writer_from_env_uses_s3_when_bucket_set(monkeypatch):
+    monkeypatch.setenv("S3_BUCKET", "my-bucket")
+    w = writer_from_env()
+    assert isinstance(w, S3RawWriter)
+    assert w.bucket == "my-bucket"

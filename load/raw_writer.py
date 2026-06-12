@@ -25,9 +25,11 @@ class LocalRawWriter:
 
 class S3RawWriter:
     def __init__(self, bucket, client=None):
-        import boto3
         self.bucket = bucket
-        self.client = client or boto3.client("s3")
+        if client is None:
+            import boto3
+            client = boto3.client("s3")
+        self.client = client
 
     def write(self, entity, records, load_id):
         if not records:
