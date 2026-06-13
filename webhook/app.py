@@ -16,6 +16,8 @@ from webhook.normalizer import webhook_order_to_record
 from webhook.security import verify_hmac
 
 WEBHOOK_LOAD_ID = 0  # sentinel: raw row originated from a webhook, not a batch load
+# Every event that reaches record_event has already passed verify_hmac (an invalid
+# signature returns 401 before any DB work), so hmac_valid is always True here.
 
 
 def create_app(conn_factory, secret):

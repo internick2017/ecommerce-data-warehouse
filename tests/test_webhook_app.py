@@ -107,3 +107,21 @@ def test_landed_order_flows_to_curated_after_transforms(db):
     assert db.execute(
         "select count(*) from curated.fact_orders where order_gid='gid://shopify/Order/5001'"
     ).fetchone()[0] == 1
+
+
+def test_malformed_json_goes_to_rejects_and_acks(db):
+    c = client(db)
+    raw = b"this is not json"
+    headers = {
+        "X-Shopify-Hmac-Sha256": sign(raw),
+        "X-Shopify-Webhook-Id": "bad-json-1",
+        "X-Shopify-Topic": "orders/create",
+        "Content-Type": "application/json",
+    }
+    resp = c.post("/webhooks/shopify/orders", content=raw, headers=headers)
+    assert resp.status_code == 200
+    assert db.execute("select count(*) from raw.rejects").fetchone()[0] == 1
+    status = db.execute(
+        "select status from meta.webhook_events where event_id='bad-json-1'"
+    ).fetchone()[0]
+    assert status == "rejected"
