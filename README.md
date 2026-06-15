@@ -18,6 +18,8 @@ flowchart LR
     I[("meta.load_audit<br/>+ watermarks")] -.-> D
     SW["Shopify webhooks<br/>orders/create|updated"] -->|"HMAC verify<br/>normalize · idempotent"| W["Webhook receiver<br/>(FastAPI)"]
     W --> D
+    ERP["SQL Server<br/>(legacy ERP)"] -->|"pyodbc · watermark<br/>incremental sync"| ES["ERP sync<br/>(erp/)"]
+    ES --> D
 ```
 
 **Star schema:** `fact_orders` and `fact_order_items` joined to `dim_product`, `dim_customer`, and a generated `dim_date` — with `customer_order_seq` and `running_revenue` computed by SQL window functions, not by the BI tool.
@@ -48,6 +50,24 @@ real time, alongside the batch pipeline:
 Run locally with `python run_webhook.py` and expose via a cloudflared tunnel; `register_webhook.py`
 subscribes the store to the tunnel URL.
 
+## Phase 3 — Legacy ERP via ODBC (cost & margin)
+
+A second source system — a SQL Server "legacy ERP" — supplies per-SKU **unit cost** and
+**on-hand inventory**, reached over **ODBC** (`erp/`):
+
+- **ODBC connectivity** — pyodbc + the Microsoft ODBC Driver 18; the connection string is built in
+  `erp/odbc.py` (`Encrypt=yes` with the dev container's self-signed cert).
+- **Incremental sync** — `erp/sync.py` pulls only rows changed since the `erp_costs` watermark
+  (`SELECT ... WHERE updated_at > ?`), upserts them into `raw.erp_costs` by SKU, and advances the
+  watermark — reusing the same `meta.watermarks` mechanism as the Shopify extractor.
+- **Margin enrichment** — the curated rebuild LEFT JOINs `raw.erp_costs` onto `fact_order_items`
+  for `line_cost` and `line_margin`, and builds a `curated.dim_inventory`. SKUs without an ERP cost
+  get NULL margin, so the batch path is unaffected when the ERP isn't synced.
+
+SQL Server runs as a Docker service; `erp/seed_erp.py` seeds realistic costs from the store's own
+SKUs, then `python run_erp_sync.py` performs the incremental ODBC sync and `python pipeline.py`
+refreshes the curated margin.
+
 ## Running it
 
 ```bash
@@ -75,11 +95,12 @@ Point Power BI at the `curated` schema and build on the star schema directly.
 
 ## Testing
 
-72 pytest tests:
+87 pytest tests:
 
 - **Unit (mocked API):** client retry/backoff/throttle behavior, cursor pagination, payload validation, raw writers.
 - **Integration (Dockerized Postgres):** loader idempotency, audit lifecycle, watermark semantics, staging and star-schema SQL, quality gates (including negative paths), and the full pipeline end-to-end — success, rejects routing, incremental runs, and failure handling.
 - **Webhooks:** HMAC signature verification, REST→canonical normalizer, the `meta.webhook_events` event store, and the FastAPI receiver (via `TestClient` against Postgres) — idempotent redelivery, bad-payload acking, and retry semantics.
+- **ERP (ODBC):** the connection-string builder, the cursor-injected extractor, the watermark sync, and the curated margin/inventory SQL — all with pyodbc mocked, no driver needed.
 
 ```bash
 python -m pytest -v
@@ -92,15 +113,16 @@ extract/     Shopify GraphQL client + cursor-paginated extractor
 load/        pydantic validation, S3/local raw writers, Postgres loader
 transform/   SQL (bootstrap, staging, curated star schema) + runner + quality gates
 webhook/     FastAPI receiver: HMAC verify, normalizer, event store, app
+erp/         legacy ERP over ODBC: connection builder, extractor, watermark sync, seeder
 infra/       AWS runbook + boto3 bootstrap (budget, S3, IAM, RDS)
 pipeline.py  batch orchestrator (incremental / --full)
 run_webhook.py   local FastAPI webhook receiver (uvicorn)
+run_erp_sync.py  incremental ODBC sync from the legacy ERP into raw.erp_costs
 register_webhook.py  subscribe the store to the tunnel URL
 seed_shopify.py  test-order seeder (backdated processedAt, tagged test-data)
-tests/       72 tests (mocked-API unit + Postgres integration)
+tests/       87 tests (mocked-API unit + Postgres integration)
 ```
 
 ## Roadmap
 
-- **ODBC / legacy ERP:** SQL Server as a simulated legacy system, extracted via pyodbc with watermark-based incremental sync (cost data → real margin in the star schema).
 - **Cloud-native scheduling:** Lambda + EventBridge, GitHub Actions CI/CD, Terraform for the infra that `aws_bootstrap.py` provisions today.
