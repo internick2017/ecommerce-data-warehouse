@@ -1,5 +1,6 @@
 drop table if exists curated.fact_order_items cascade;
 drop table if exists curated.fact_orders cascade;
+drop table if exists curated.dim_inventory cascade;
 drop table if exists curated.dim_product cascade;
 drop table if exists curated.dim_customer cascade;
 drop table if exists curated.dim_date cascade;
@@ -90,12 +91,22 @@ select
     i.sku,
     i.quantity,
     i.unit_price,
-    (i.quantity * i.unit_price)::numeric(12,2) as line_revenue
+    (i.quantity * i.unit_price)::numeric(12,2)                          as line_revenue,
+    ec.unit_cost,
+    (i.quantity * ec.unit_cost)::numeric(12,2)                          as line_cost,
+    ((i.quantity * i.unit_price) - (i.quantity * ec.unit_cost))::numeric(12,2) as line_margin
 from staging.order_items i
-left join curated.dim_product p using (product_gid);
+left join curated.dim_product p using (product_gid)
+left join raw.erp_costs ec on ec.sku = i.sku;
 
 alter table curated.fact_order_items add primary key (line_item_gid);
 alter table curated.fact_order_items add foreign key (order_gid) references curated.fact_orders (order_gid);
 alter table curated.fact_order_items add foreign key (product_key) references curated.dim_product (product_key);
 create index fact_order_items_product_key_idx on curated.fact_order_items (product_key);
 create index fact_order_items_order_gid_idx on curated.fact_order_items (order_gid);
+
+create table curated.dim_inventory as
+select sku, on_hand, unit_cost
+from raw.erp_costs;
+
+alter table curated.dim_inventory add primary key (sku);
