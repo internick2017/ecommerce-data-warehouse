@@ -36,6 +36,14 @@ create table if not exists raw.rejects (
     rejected_at timestamptz not null default now()
 );
 
+create table if not exists raw.erp_costs (
+    sku            text primary key,
+    unit_cost      numeric(12,2),
+    on_hand        int,
+    erp_updated_at timestamptz,
+    loaded_at      timestamptz not null default now()
+);
+
 create table if not exists meta.load_audit (
     load_id       bigint generated always as identity primary key,
     started_at    timestamptz not null default now(),
