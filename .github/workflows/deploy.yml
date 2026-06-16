@@ -48,6 +48,6 @@ jobs:
       - name: Terraform init
         run: terraform -chdir=infra/terraform init
       - name: Terraform plan
-        run: terraform -chdir=infra/terraform plan -input=false -var raw_bucket_name=${{ vars.RAW_BUCKET_NAME }} -var shop_domain=${{ vars.SHOP_DOMAIN }}
+        run: terraform -chdir=infra/terraform plan -input=false -var="raw_bucket_name=${{ vars.RAW_BUCKET_NAME }}" -var="shop_domain=${{ vars.SHOP_DOMAIN }}"
       - name: Terraform apply
-        run: terraform -chdir=infra/terraform apply -auto-approve -input=false -var raw_bucket_name=${{ vars.RAW_BUCKET_NAME }} -var shop_domain=${{ vars.SHOP_DOMAIN }}
+        run: terraform -chdir=infra/terraform apply -auto-approve -input=false -var="raw_bucket_name=${{ vars.RAW_BUCKET_NAME }}" -var="shop_domain=${{ vars.SHOP_DOMAIN }}"
