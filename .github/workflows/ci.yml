@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: dw
+          POSTGRES_PASSWORD: dw
+          POSTGRES_DB: ecommerce_dw
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U dw"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://dw:dw@localhost:5433/ecommerce_dw
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ODBC headers (for pyodbc)
+        run: sudo apt-get update && sudo apt-get install -y unixodbc-dev
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run tests
+        run: pytest -v
+
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - name: Terraform fmt
+        run: terraform -chdir=infra/terraform fmt -check -recursive
+      - name: Terraform init
+        run: terraform -chdir=infra/terraform init -backend=false
+      - name: Terraform validate
+        run: terraform -chdir=infra/terraform validate
