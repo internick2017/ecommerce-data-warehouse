@@ -20,6 +20,8 @@ flowchart LR
     W --> D
     ERP["SQL Server<br/>(legacy ERP)"] -->|"pyodbc · watermark<br/>incremental sync"| ES["ERP sync<br/>(erp/)"]
     ES --> D
+    SCHED["EventBridge<br/>(schedule)"] -->|"triggers"| LAM["Lambda<br/>(handler)"]
+    LAM -->|"run_pipeline"| B
 ```
 
 **Star schema:** `fact_orders` and `fact_order_items` joined to `dim_product`, `dim_customer`, and a generated `dim_date` — with `customer_order_seq` and `running_revenue` computed by SQL window functions, not by the BI tool.
@@ -68,6 +70,25 @@ SQL Server runs as a Docker service; `erp/seed_erp.py` seeds realistic costs fro
 SKUs, then `python run_erp_sync.py` performs the incremental ODBC sync and `python pipeline.py`
 refreshes the curated margin.
 
+## Phase 4 — Scheduled runs (IaC + CI/CD)
+
+The batch pipeline runs on a schedule as an **AWS Lambda** triggered by
+**EventBridge**, all declared as code with **Terraform** (`infra/terraform/`):
+
+- **`lambda_app/handler.py`** wraps `pipeline.run_pipeline` — no logic duplicated.
+- **`infra/build_lambda.py`** builds the deployment zip with Linux-platform wheels.
+- **Terraform** declares the Lambda, a least-privilege IAM role, a CloudWatch log
+  group, and the EventBridge schedule. It *complements* `infra/aws_bootstrap.py`:
+  it references the existing S3 bucket and reads secrets from **SSM Parameter
+  Store**, and does not manage the bucket or RDS.
+- **GitHub Actions** — `ci.yml` runs the test suite against a Postgres service
+  container and `terraform validate` on every push; `deploy.yml` builds the package
+  and (gated behind a manual-approval `production` environment) can `terraform apply`.
+
+These are validated artifacts: `terraform validate` and CI are green, but no live
+`apply` is performed (a VPC-attached Lambda reaching the internet needs a NAT
+gateway, outside the free tier). See `infra/terraform/README.md`.
+
 ## Running it
 
 ```bash
@@ -95,7 +116,7 @@ Point Power BI at the `curated` schema and build on the star schema directly.
 
 ## Testing
 
-87 pytest tests:
+92 pytest tests:
 
 - **Unit (mocked API):** client retry/backoff/throttle behavior, cursor pagination, payload validation, raw writers.
 - **Integration (Dockerized Postgres):** loader idempotency, audit lifecycle, watermark semantics, staging and star-schema SQL, quality gates (including negative paths), and the full pipeline end-to-end — success, rejects routing, incremental runs, and failure handling.
@@ -114,15 +135,17 @@ load/        pydantic validation, S3/local raw writers, Postgres loader
 transform/   SQL (bootstrap, staging, curated star schema) + runner + quality gates
 webhook/     FastAPI receiver: HMAC verify, normalizer, event store, app
 erp/         legacy ERP over ODBC: connection builder, extractor, watermark sync, seeder
-infra/       AWS runbook + boto3 bootstrap (budget, S3, IAM, RDS)
+infra/       AWS runbook + boto3 bootstrap (S3, IAM, RDS) + Terraform (Lambda, EventBridge, IAM, schedule) + build_lambda.py
+lambda_app/  AWS Lambda entrypoint that wraps the batch pipeline for scheduled runs
+.github/     GitHub Actions: CI (pytest + terraform validate) and CD (package zip + gated apply)
 pipeline.py  batch orchestrator (incremental / --full)
 run_webhook.py   local FastAPI webhook receiver (uvicorn)
 run_erp_sync.py  incremental ODBC sync from the legacy ERP into raw.erp_costs
 register_webhook.py  subscribe the store to the tunnel URL
 seed_shopify.py  test-order seeder (backdated processedAt, tagged test-data)
-tests/       87 tests (mocked-API unit + Postgres integration)
+tests/       92 tests (mocked-API unit + Postgres integration + Lambda handler)
 ```
 
 ## Roadmap
 
-- **Cloud-native scheduling:** Lambda + EventBridge, GitHub Actions CI/CD, Terraform for the infra that `aws_bootstrap.py` provisions today.
+- **Live deployment:** apply the Phase 4 Terraform to AWS — populate the SSM parameters, resolve Lambda↔RDS networking (a reachable RDS, or `enable_vpc` with a NAT gateway), and switch on the gated `deploy.yml` apply. The IaC and CI/CD are already in place (`infra/terraform/`, `.github/workflows/`); only the live `apply` remains.

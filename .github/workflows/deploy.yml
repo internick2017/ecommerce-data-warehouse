@@ -1,0 +1,53 @@
+name: Deploy
+
+# Manual only. The `package` job always runs green (proves packaging). The
+# `deploy` job (terraform plan + apply) is dormant: it needs AWS credentials and
+# populated SSM parameters, and is gated behind the `production` environment's
+# manual approval. Enable it by setting the repo variable ENABLE_DEPLOY=true and
+# configuring the `production` environment with an OIDC role.
+on:
+  workflow_dispatch:
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build Lambda package
+        run: python infra/build_lambda.py
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline_lambda
+          path: dist/pipeline_lambda.zip
+
+  deploy:
+    needs: package
+    if: ${{ vars.ENABLE_DEPLOY == 'true' }}
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: pipeline_lambda
+          path: dist
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-2
+      - uses: hashicorp/setup-terraform@v3
+      - name: Terraform init
+        run: terraform -chdir=infra/terraform init
+      - name: Terraform plan
+        run: terraform -chdir=infra/terraform plan -input=false -var="raw_bucket_name=${{ vars.RAW_BUCKET_NAME }}" -var="shop_domain=${{ vars.SHOP_DOMAIN }}"
+      - name: Terraform apply
+        run: terraform -chdir=infra/terraform apply -auto-approve -input=false -var="raw_bucket_name=${{ vars.RAW_BUCKET_NAME }}" -var="shop_domain=${{ vars.SHOP_DOMAIN }}"
