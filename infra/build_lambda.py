@@ -9,9 +9,11 @@ Run on any OS:
 Excludes dev/test-only deps (pytest, fastapi, uvicorn, pyodbc): the scheduled
 batch Lambda needs none of them.
 """
+import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import zipfile
 from pathlib import Path
 
@@ -23,15 +25,15 @@ ZIP_PATH = DIST / "pipeline_lambda.zip"
 # Source packages/modules the handler imports at runtime.
 SOURCE_ITEMS = ["lambda_app", "extract", "load", "transform", "pipeline.py"]
 
-# Runtime deps only.
+# Runtime deps only. Upper bounds keep the build reproducible across major releases.
 RUNTIME_DEPS = [
-    "requests>=2.31",
-    "pydantic>=2.5",
-    "psycopg[binary]>=3.1",
-    "python-dotenv>=1.0",
+    "requests>=2.31,<3",
+    "pydantic>=2.5,<3",
+    "psycopg[binary]>=3.1,<4",
+    "python-dotenv>=1.0,<2",
 ]
 PLATFORM = "manylinux2014_x86_64"
-PY_VERSION = "312"
+PY_VERSION = "312"  # pip --python-version format: no dot (e.g. "313" for 3.13)
 
 
 def clean():
@@ -61,6 +63,8 @@ def vendor_deps():
 def copy_sources():
     for item in SOURCE_ITEMS:
         src = ROOT / item
+        if not src.exists():
+            raise FileNotFoundError(f"SOURCE_ITEMS entry not found: {src}")
         dest = BUILD / item
         if src.is_dir():
             shutil.copytree(
@@ -71,10 +75,20 @@ def copy_sources():
 
 
 def make_zip():
-    with zipfile.ZipFile(ZIP_PATH, "w", zipfile.ZIP_DEFLATED) as zf:
-        for path in BUILD.rglob("*"):
-            if path.is_file():
-                zf.write(path, path.relative_to(BUILD))
+    # Write to a temp file then rename atomically, so a mid-write failure never
+    # leaves a truncated zip behind.
+    fd, tmp = tempfile.mkstemp(dir=DIST, suffix=".zip")
+    os.close(fd)
+    tmp_path = Path(tmp)
+    try:
+        with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for path in BUILD.rglob("*"):
+                if path.is_file():
+                    zf.write(path, path.relative_to(BUILD))
+        tmp_path.replace(ZIP_PATH)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
 
 
 def main():
@@ -82,8 +96,8 @@ def main():
     vendor_deps()
     copy_sources()
     make_zip()
-    size_kb = ZIP_PATH.stat().st_size // 1024
-    print(f"built {ZIP_PATH} ({size_kb} KB)")
+    size_kb = ZIP_PATH.stat().st_size / 1024
+    print(f"built {ZIP_PATH} ({size_kb:.1f} KB)")
 
 
 if __name__ == "__main__":
