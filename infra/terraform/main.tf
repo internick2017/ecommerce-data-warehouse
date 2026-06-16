@@ -1,6 +1,16 @@
 data "aws_caller_identity" "current" {}
 
+locals {
+  function_name = "ecommerce-dw-pipeline"
+}
+
 # --- Secrets pulled from SSM Parameter Store (never stored in .tf) ---
+# KNOWN TRADE-OFF: these values are injected as Lambda environment variables, so
+# they are visible in the Lambda console and stored in Terraform state. Accepted
+# here because this case is a validated artifact and is not deployed. A
+# production version would pass only the SSM parameter NAMES and fetch them in
+# code at cold start (the ReadSecrets IAM statement already allows that), or use
+# the Lambda SSM/Secrets Manager extension.
 data "aws_ssm_parameter" "shopify_access_token" {
   name = "${var.ssm_prefix}/SHOPIFY_ACCESS_TOKEN"
 }
@@ -21,11 +31,13 @@ data "aws_iam_policy_document" "lambda_assume" {
 }
 
 resource "aws_iam_role" "pipeline" {
-  name               = "ecommerce-dw-pipeline-lambda"
+  name               = "${local.function_name}-lambda"
   assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
 }
 
 data "aws_iam_policy_document" "pipeline_permissions" {
+  # CreateLogGroup is intentionally omitted: the log group is pre-created below
+  # (with depends_on), so the runtime only needs to write to it.
   statement {
     sid       = "Logs"
     actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
@@ -44,12 +56,12 @@ data "aws_iam_policy_document" "pipeline_permissions" {
   statement {
     sid       = "ReadSecrets"
     actions   = ["ssm:GetParameter"]
-    resources = ["arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter${var.ssm_prefix}/*"]
+    resources = ["arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${trimprefix(var.ssm_prefix, "/")}/*"]
   }
 }
 
 resource "aws_iam_role_policy" "pipeline" {
-  name   = "ecommerce-dw-pipeline-policy"
+  name   = "${local.function_name}-policy"
   role   = aws_iam_role.pipeline.id
   policy = data.aws_iam_policy_document.pipeline_permissions.json
 }
@@ -63,7 +75,7 @@ resource "aws_iam_role_policy_attachment" "vpc_access" {
 
 # --- Log group ---
 resource "aws_cloudwatch_log_group" "pipeline" {
-  name              = "/aws/lambda/ecommerce-dw-pipeline"
+  name              = "/aws/lambda/${local.function_name}"
   retention_in_days = 14
 }
 
@@ -73,7 +85,7 @@ resource "aws_cloudwatch_log_group" "pipeline" {
 # omitted so `terraform validate` works without a built zip; the CD workflow
 # builds the zip before plan/apply.
 resource "aws_lambda_function" "pipeline" {
-  function_name = "ecommerce-dw-pipeline"
+  function_name = local.function_name
   role          = aws_iam_role.pipeline.arn
   runtime       = "python3.12"
   handler       = "lambda_app.handler.handler"
@@ -98,19 +110,26 @@ resource "aws_lambda_function" "pipeline" {
     }
   }
 
+  lifecycle {
+    precondition {
+      condition     = !var.enable_vpc || (length(var.subnet_ids) > 0 && length(var.security_group_ids) > 0)
+      error_message = "enable_vpc requires at least one subnet_id and one security_group_id."
+    }
+  }
+
   depends_on = [aws_cloudwatch_log_group.pipeline]
 }
 
 # --- EventBridge schedule ---
 resource "aws_cloudwatch_event_rule" "schedule" {
-  name                = "ecommerce-dw-pipeline-schedule"
+  name                = "${local.function_name}-schedule"
   description         = "Triggers the ELT pipeline Lambda on a schedule"
   schedule_expression = var.schedule_expression
 }
 
 resource "aws_cloudwatch_event_target" "pipeline" {
   rule      = aws_cloudwatch_event_rule.schedule.name
-  target_id = "ecommerce-dw-pipeline"
+  target_id = local.function_name
   arn       = aws_lambda_function.pipeline.arn
   input     = jsonencode({ full = false })
 }

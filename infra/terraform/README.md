@@ -36,3 +36,14 @@ egress (Shopify) but cannot reach an RDS instance locked to a single IP. Product
 options: make RDS reachable, or set `enable_vpc=true` with private subnets — the
 latter needs a NAT gateway for Shopify egress (~$32/mo, not free tier). This case
 stays at validate/plan to avoid that cost.
+
+## Secrets handling (known trade-off)
+
+This module reads the secrets from SSM Parameter Store and injects their **values**
+as Lambda environment variables. That keeps the handler simple (it reads env vars,
+same as local runs) but means the values are visible in the Lambda console and
+stored in Terraform state. For a production deployment the stronger pattern is to
+pass only the parameter **names** and call `ssm:GetParameter` (with decryption) in
+the handler at cold start — the `ReadSecrets` IAM statement already grants exactly
+that. This case stays with env-var injection because it is a validated artifact and
+is never applied.

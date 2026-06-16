@@ -28,8 +28,13 @@ variable "lambda_zip_path" {
 
 variable "ssm_prefix" {
   type        = string
-  description = "SSM Parameter Store path prefix for this project's secrets."
+  description = "SSM Parameter Store path prefix for this project's secrets (must start with /)."
   default     = "/ecommerce-dw"
+
+  validation {
+    condition     = startswith(var.ssm_prefix, "/")
+    error_message = "ssm_prefix must start with a leading slash, e.g. /ecommerce-dw."
+  }
 }
 
 variable "enable_vpc" {
