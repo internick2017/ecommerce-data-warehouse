@@ -3,7 +3,7 @@
 Do these IN ORDER. Guards first, resources second.
 
 ## 0. Account
-- Sign up / log in at console.aws.amazon.com. Region: us-east-1 (matches AWS_REGION in .env).
+- Sign up / log in at console.aws.amazon.com. Region: us-east-2 (matches AWS_REGION in .env and the Terraform default; AWS Budgets is global and lives in us-east-1).
 
 ## 1. Billing guard (BEFORE any resource)
 - Billing → Budgets → Create budget → Zero spend budget template (alerts above $0.01),
@@ -12,7 +12,7 @@ Do these IN ORDER. Guards first, resources second.
 
 ## 2. S3 bucket (raw data lake)
 - S3 → Create bucket: `ecommerce-dw-raw-<your-suffix>` (must be globally unique),
-  us-east-1, Block ALL public access = ON (default).
+  us-east-2, Block ALL public access = ON (default).
 - Bucket → Management → Lifecycle rule: name `expire-raw-30d`, scope = whole bucket,
   action = "Expire current versions of objects" after 30 days.
 - Put the bucket name in `.env` as `S3_BUCKET=`.

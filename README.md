@@ -116,7 +116,7 @@ Point Power BI at the `curated` schema and build on the star schema directly.
 
 ## Testing
 
-87 pytest tests:
+92 pytest tests:
 
 - **Unit (mocked API):** client retry/backoff/throttle behavior, cursor pagination, payload validation, raw writers.
 - **Integration (Dockerized Postgres):** loader idempotency, audit lifecycle, watermark semantics, staging and star-schema SQL, quality gates (including negative paths), and the full pipeline end-to-end — success, rejects routing, incremental runs, and failure handling.
@@ -135,13 +135,15 @@ load/        pydantic validation, S3/local raw writers, Postgres loader
 transform/   SQL (bootstrap, staging, curated star schema) + runner + quality gates
 webhook/     FastAPI receiver: HMAC verify, normalizer, event store, app
 erp/         legacy ERP over ODBC: connection builder, extractor, watermark sync, seeder
-infra/       AWS runbook + boto3 bootstrap (budget, S3, IAM, RDS)
+infra/       AWS runbook + boto3 bootstrap (S3, IAM, RDS) + Terraform (Lambda, EventBridge, IAM, schedule) + build_lambda.py
+lambda_app/  AWS Lambda entrypoint that wraps the batch pipeline for scheduled runs
+.github/     GitHub Actions: CI (pytest + terraform validate) and CD (package zip + gated apply)
 pipeline.py  batch orchestrator (incremental / --full)
 run_webhook.py   local FastAPI webhook receiver (uvicorn)
 run_erp_sync.py  incremental ODBC sync from the legacy ERP into raw.erp_costs
 register_webhook.py  subscribe the store to the tunnel URL
 seed_shopify.py  test-order seeder (backdated processedAt, tagged test-data)
-tests/       87 tests (mocked-API unit + Postgres integration)
+tests/       92 tests (mocked-API unit + Postgres integration + Lambda handler)
 ```
 
 ## Roadmap
