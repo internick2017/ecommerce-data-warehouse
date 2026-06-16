@@ -146,4 +146,4 @@ tests/       87 tests (mocked-API unit + Postgres integration)
 
 ## Roadmap
 
-- **Cloud-native scheduling:** Lambda + EventBridge, GitHub Actions CI/CD, Terraform for the infra that `aws_bootstrap.py` provisions today.
+- **Live deployment:** apply the Phase 4 Terraform to AWS — populate the SSM parameters, resolve Lambda↔RDS networking (a reachable RDS, or `enable_vpc` with a NAT gateway), and switch on the gated `deploy.yml` apply. The IaC and CI/CD are already in place (`infra/terraform/`, `.github/workflows/`); only the live `apply` remains.
