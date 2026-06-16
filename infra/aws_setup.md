@@ -52,3 +52,9 @@ Do these IN ORDER. Guards first, resources second.
 - The free tier covers 750 instance-hours/month of db.t4g.micro for 12 months.
 - Delete everything when the portfolio case is archived: RDS instance (skip final
   snapshot), S3 bucket, IAM user.
+
+## 6. Scheduled runs (Phase 4)
+
+The Lambda + EventBridge schedule that runs this pipeline automatically is defined
+as code in `infra/terraform/` (see its README). It references the bucket and RDS
+created above; secrets go in SSM Parameter Store, not in `.tf` files.

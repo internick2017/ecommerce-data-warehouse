@@ -20,6 +20,8 @@ flowchart LR
     W --> D
     ERP["SQL Server<br/>(legacy ERP)"] -->|"pyodbc · watermark<br/>incremental sync"| ES["ERP sync<br/>(erp/)"]
     ES --> D
+    SCHED["EventBridge<br/>(schedule)"] -->|"triggers"| LAM["Lambda<br/>(handler)"]
+    LAM -->|"run_pipeline"| B
 ```
 
 **Star schema:** `fact_orders` and `fact_order_items` joined to `dim_product`, `dim_customer`, and a generated `dim_date` — with `customer_order_seq` and `running_revenue` computed by SQL window functions, not by the BI tool.
@@ -67,6 +69,25 @@ A second source system — a SQL Server "legacy ERP" — supplies per-SKU **unit
 SQL Server runs as a Docker service; `erp/seed_erp.py` seeds realistic costs from the store's own
 SKUs, then `python run_erp_sync.py` performs the incremental ODBC sync and `python pipeline.py`
 refreshes the curated margin.
+
+## Phase 4 — Scheduled runs (IaC + CI/CD)
+
+The batch pipeline runs on a schedule as an **AWS Lambda** triggered by
+**EventBridge**, all declared as code with **Terraform** (`infra/terraform/`):
+
+- **`lambda_app/handler.py`** wraps `pipeline.run_pipeline` — no logic duplicated.
+- **`infra/build_lambda.py`** builds the deployment zip with Linux-platform wheels.
+- **Terraform** declares the Lambda, a least-privilege IAM role, a CloudWatch log
+  group, and the EventBridge schedule. It *complements* `infra/aws_bootstrap.py`:
+  it references the existing S3 bucket and reads secrets from **SSM Parameter
+  Store**, and does not manage the bucket or RDS.
+- **GitHub Actions** — `ci.yml` runs the test suite against a Postgres service
+  container and `terraform validate` on every push; `deploy.yml` builds the package
+  and (gated behind a manual-approval `production` environment) can `terraform apply`.
+
+These are validated artifacts: `terraform validate` and CI are green, but no live
+`apply` is performed (a VPC-attached Lambda reaching the internet needs a NAT
+gateway, outside the free tier). See `infra/terraform/README.md`.
 
 ## Running it
 
